@@ -1,0 +1,10 @@
+{
+  "name": "AudioPruner",
+  "description": "Safer AudioPruner - non-destructive remux, ffprobe-based selection, restore endpoint with live ffmpeg progress.",
+  "guid": "610fe80a-d52a-4eb3-9254-c5d4cd710030",
+  "version": "0.2.1.0",
+  "targetAbi": "10.9.0.0",
+  "owner": "PingForHelp",
+  "category": "Other",
+  "imageUrl": "icon.png"
+}

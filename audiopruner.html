@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>AudioPruner (safe mode with progress)</title>
+<body style="font-family:system-ui, sans-serif; padding:16px; max-width:900px;">
+  <h2>AudioPruner — safe (non-destructive)</h2>
+  <input id="item" placeholder="ItemId" style="width:100%; padding:8px" />
+  <button id="fetch">Fetch tracks</button>
+  <div id="tracks" style="margin-top:12px"></div>
+  <label><input id="subs" type="checkbox" checked> keep subtitles</label>
+  <label style="margin-left:12px"><input id="chap" type="checkbox" checked> keep chapters</label>
+  <label style="margin-left:12px"><input id="bak" type="checkbox" checked> create backup copy</label>
+  <div style="margin-top:12px;">
+    <button id="run" disabled>Create non-destructive remux</button>
+  </div>
+  <pre id="out" style="margin-top:12px; white-space:pre-wrap; height:300px; overflow-y:auto; padding:8px; border:1px solid #ccc; border-radius:4px; background:#222; color:#eee; font-family: monospace;"></pre>
+<script>
+const item = document.getElementById('item');
+const tracksDiv = document.getElementById('tracks');
+const runBtn = document.getElementById('run');
+const out = document.getElementById('out');
+let chosenFfmpegIndex = null;
+document.getElementById('fetch').onclick = async () => {
+  out.textContent = '';
+  tracksDiv.innerHTML = 'Loading...';
+  runBtn.disabled = true;
+  chosenFfmpegIndex = null;
+  try {
+    const res = await fetch(`/AudioPruner/Tracks/${encodeURIComponent(item.value)}`);
+    if (!res.ok) { tracksDiv.textContent = await res.text(); return; }
+    const data = await res.json();
+    if (!data.audio || !data.audio.length) { tracksDiv.textContent = 'No audio streams found.'; return; }
+    tracksDiv.innerHTML = data.audio.map(a =>
+      `<label style="display:block;padding:6px;border:1px solid #ddd;margin-top:6px;border-radius:6px; cursor:pointer;">
+        <input type="radio" name="aud" value="${a.ffmpegIndex}"/>
+        stream ${a.ffmpegIndex} — ${a.codec || 'audio'} ${a.channels? a.channels+'ch':''} ${a.language||''} ${a.title?('— '+a.title):''}
+      </label>`
+    ).join('');
+    tracksDiv.querySelectorAll('input[name="aud"]').forEach(r => {
+      r.onchange = () => { chosenFfmpegIndex = Number(r.value); runBtn.disabled = false; };
+    });
+  } catch (e) { tracksDiv.textContent = 'Error: ' + e; }
+};
+function colorizeLine(line) {
+  const lc = line.toLowerCase();
+  if (lc.includes('error')) return `<span style="color:#f66;">${line}</span>`;
+  if (lc.includes('warning')) return `<span style="color:#ff8;">${line}</span>`;
+  return line;
+}
+runBtn.onclick = async () => {
+  if (chosenFfmpegIndex == null) return;
+  out.textContent = 'Starting remux... (progress will appear below)\n';
+  runBtn.disabled = true;
+  const qs = new URLSearchParams({
+    itemId: item.value,
+    ffmpegAudioIndex: String(chosenFfmpegIndex),
+    keepSubs: document.getElementById('subs').checked ? 'true' : 'false',
+    keepChapters: document.getElementById('chap').checked ? 'true' : 'false',
+    backup: document.getElementById('bak').checked ? 'true' : 'false'
+  });
+  const sseUrl = `/AudioPruner/KeepOnlyCreateNewStream?${qs.toString()}`;
+  const es = new EventSource(sseUrl);
+  es.onmessage = (e) => {
+    const colored = colorizeLine(e.data);
+    out.innerHTML += colored + "<br>";
+    out.scrollTop = out.scrollHeight;
+  };
+  es.addEventListener('done', (e) => {
+    try { const payload = JSON.parse(e.data);
+      out.innerHTML += `<br><strong style="color:#6f6;">DONE — new file: ${payload.newFile}</strong><br>`;
+    } catch { out.innerHTML += `<br><strong>DONE — response: ${e.data}</strong><br>`; }
+    out.scrollTop = out.scrollHeight; es.close(); runBtn.disabled = false;
+  });
+  es.addEventListener('error', (e) => {
+    out.innerHTML += `<br><strong style="color:#f66;">ERROR from server (check server logs)</strong><br>`;
+    out.scrollTop = out.scrollHeight; es.close(); runBtn.disabled = false;
+  });
+};
+</script>
+</body>
